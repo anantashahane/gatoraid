@@ -1,10 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 
 	"github.com/anantashahane/gatoraid/internal"
+	"github.com/anantashahane/gatoraid/internal/database"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -14,9 +17,18 @@ func main() {
 		os.Exit(1)
 	}
 	programState := state{configuration: &data}
+	db, err := sql.Open("postgres", programState.configuration.DbURL)
+	if err != nil {
+		fmt.Println("Error opening up database.")
+		os.Exit(1)
+	}
+	programState.dbConnection = database.New(db)
 
 	cmds := commands{commandMap: make(map[string]func(*state, command) error)}
 	cmds.register("login", handlerLogin)
+	cmds.register("register", handlerRegister)
+	cmds.register("reset", resetData)
+	cmds.register("users", presentAllUsers)
 
 	args := os.Args
 	if len(args) < 2 {
