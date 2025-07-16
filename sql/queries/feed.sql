@@ -20,3 +20,7 @@ SELECT feeds.name, feeds.url, users.name FROM feeds
 LEFT JOIN users
 ON feeds.user_id = users.id
 ORDER BY feeds.created_at;
+
+-- name: GetFeed :one
+SELECT feeds.name, feeds.url, feeds.id FROM feeds
+WHERE feeds.url = $1;

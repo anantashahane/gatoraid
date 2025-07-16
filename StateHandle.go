@@ -27,6 +27,16 @@ type commands struct {
 	commandMap map[string]func(*state, command) error
 }
 
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) (err error) {
+		user, err := s.dbConnection.GetUser(context.Background(), s.configuration.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("User %s, not registered/logged in Try `users` command. Error: %s", s.configuration.CurrentUserName, err)
+		}
+		return handler(s, cmd, user)
+	}
+}
+
 func handlerLogin(s *state, cmd command) (err error) {
 	if len(cmd.arguements) != 1 {
 		return fmt.Errorf("Login expects exactly 1 argument, received %v", cmd.arguements)
@@ -122,13 +132,9 @@ func aggHandler(s *state, cmd command) (err error) {
 	return nil
 }
 
-func addFeed(s *state, cmd command) (err error) {
+func addFeed(s *state, cmd command, user database.User) (err error) {
 	if len(cmd.arguements) != 2 {
 		return fmt.Errorf("Expected two arguments in \n\tname: Name of the feed.\n\turl: The url of the feed.\n Received %v", cmd.arguements)
-	}
-	user, err := s.dbConnection.GetUser(context.Background(), s.configuration.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("Error finding user \"%s\", to bind feed to.", s.configuration.CurrentUserName)
 	}
 
 	_, err = internal.FetchFeed(context.Background(), cmd.arguements[1])
@@ -147,7 +153,20 @@ func addFeed(s *state, cmd command) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Added feed " + feedDB.Name + "(" + feedDB.Url + "), for user " + user.Name + ".")
+
+	feedUserData, err := s.dbConnection.AddFeedtoUser(context.Background(),
+		database.AddFeedtoUserParams{
+			ID:        uuid.New(),
+			CreatedAt: feedDB.CreatedAt,
+			UpdatedAt: feedDB.UpdatedAt,
+			UserID:    user.ID,
+			FeedID:    feedDB.ID,
+		})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Added feed " + feedUserData.FeedName + "(" + feedDB.Url + "), for user " + feedUserData.UserName + ".")
 	return nil
 }
 
@@ -164,6 +183,59 @@ func getAllFeed(s *state, cmd command) (err error) {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", feedDatum.Name, feedDatum.Url, feedDatum.Name_2.String)
 	}
 	w.Flush()
+	return nil
+}
+
+func followHandler(s *state, cmd command, user database.User) (err error) {
+	if len(cmd.arguements) != 1 {
+		return fmt.Errorf("Expected 1 argument in url. Received %v.", cmd.arguements)
+	}
+
+	feedDB, err := s.dbConnection.GetFeed(context.Background(), cmd.arguements[0])
+	if err != nil {
+		return err
+	}
+
+	followData, err := s.dbConnection.AddFeedtoUser(context.Background(), database.AddFeedtoUserParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    user.ID,
+		FeedID:    feedDB.ID,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s feed added to user %s.", followData.FeedName, followData.UserName)
+	return nil
+}
+
+func followingHandler(s *state, cmd command, user database.User) (err error) {
+	followUser, err := s.dbConnection.GetFeedFollowesFor(context.Background(), user.ID)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Content Followed by user " + user.Name + ": ")
+	for index, content := range followUser {
+		fmt.Printf("\t%v) %s at address %s\n", index+1, content.Feedname, content.Url)
+	}
+	return nil
+}
+
+func unfollowHandler(s *state, cmd command, user database.User) (err error) {
+	if len(cmd.arguements) != 1 {
+		return fmt.Errorf("Expected 1 arguement in url, got %v", cmd.arguements)
+	}
+	_, err = s.dbConnection.UnFollow(context.Background(),
+		database.UnFollowParams{
+			UserID: user.ID,
+			Url:    cmd.arguements[0],
+		})
+	if err != nil {
+		return fmt.Errorf("Error unfollowing %w", err)
+	}
+	fmt.Printf("Unfollowed %s, as %s.\n", cmd.arguements[0], user.Name)
 	return nil
 }
 
