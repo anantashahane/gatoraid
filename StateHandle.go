@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"text/tabwriter"
 	"time"
 
 	"github.com/anantashahane/gatoraid/internal"
@@ -80,13 +82,16 @@ func presentAllUsers(s *state, cmd command) (err error) {
 		return err
 	}
 	currentBadge := ""
+
+	w := tabwriter.NewWriter(os.Stdout, 2, 0, 2, ' ', 0)
 	for _, user := range users {
 		currentBadge = ""
 		if user == s.configuration.CurrentUserName {
 			currentBadge = " (current)"
 		}
-		fmt.Println(user + currentBadge)
+		fmt.Fprintf(w, "%s\t\t%s\n", user, currentBadge)
 	}
+	w.Flush()
 	return nil
 }
 
@@ -105,6 +110,60 @@ func resetData(s *state, cmd command) (err error) {
 	}
 	s.configuration = &data
 	fmt.Println("Reset successful.")
+	return nil
+}
+
+func aggHandler(s *state, cmd command) (err error) {
+	feed, err := internal.FetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		return err
+	}
+	fmt.Println(feed)
+	return nil
+}
+
+func addFeed(s *state, cmd command) (err error) {
+	if len(cmd.arguements) != 2 {
+		return fmt.Errorf("Expected two arguments in \n\tname: Name of the feed.\n\turl: The url of the feed.\n Received %v", cmd.arguements)
+	}
+	user, err := s.dbConnection.GetUser(context.Background(), s.configuration.CurrentUserName)
+	if err != nil {
+		return fmt.Errorf("Error finding user \"%s\", to bind feed to.", s.configuration.CurrentUserName)
+	}
+
+	_, err = internal.FetchFeed(context.Background(), cmd.arguements[1])
+	if err != nil {
+		return fmt.Errorf("Error fetching from %s. Error: %s", cmd.arguements[1], err)
+	}
+
+	feedDB, err := s.dbConnection.AddFeed(context.Background(),
+		database.AddFeedParams{ID: uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Name:      cmd.arguements[0],
+			Url:       cmd.arguements[1],
+			UserID:    user.ID})
+
+	if err != nil {
+		return err
+	}
+	fmt.Println("Added feed " + feedDB.Name + "(" + feedDB.Url + "), for user " + user.Name + ".")
+	return nil
+}
+
+func getAllFeed(s *state, cmd command) (err error) {
+	feedData, err := s.dbConnection.GetAllFeeds(context.Background())
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(os.Stdout, 1, 1, 2, ' ', 0)
+
+	fmt.Fprintln(w, "Feed\tURL\tSubscriber")
+
+	for _, feedDatum := range feedData {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", feedDatum.Name, feedDatum.Url, feedDatum.Name_2.String)
+	}
+	w.Flush()
 	return nil
 }
 

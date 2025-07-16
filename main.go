@@ -29,6 +29,9 @@ func main() {
 	cmds.register("register", handlerRegister)
 	cmds.register("reset", resetData)
 	cmds.register("users", presentAllUsers)
+	cmds.register("agg", aggHandler)
+	cmds.register("addfeed", addFeed)
+	cmds.register("feeds", getAllFeed)
 
 	args := os.Args
 	if len(args) < 2 {
