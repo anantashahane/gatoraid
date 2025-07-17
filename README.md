@@ -33,7 +33,7 @@ Blog Aggregator in Go
 * Setup postgres
   * After installing `goose`, run `goose <dburl> up` in `/sql/schema` directory.
 ---
-# Installing
+## Installing
 * You can generate the required binary by running `go build` in root directory, now you can use
   ```bash
     ./gatoraid <command> [arguements]
