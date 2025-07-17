@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -123,15 +125,6 @@ func resetData(s *state, cmd command) (err error) {
 	return nil
 }
 
-func aggHandler(s *state, cmd command) (err error) {
-	feed, err := internal.FetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
-	if err != nil {
-		return err
-	}
-	fmt.Println(feed)
-	return nil
-}
-
 func addFeed(s *state, cmd command, user database.User) (err error) {
 	if len(cmd.arguements) != 2 {
 		return fmt.Errorf("Expected two arguments in \n\tname: Name of the feed.\n\turl: The url of the feed.\n Received %v", cmd.arguements)
@@ -236,6 +229,80 @@ func unfollowHandler(s *state, cmd command, user database.User) (err error) {
 		return fmt.Errorf("Error unfollowing %w", err)
 	}
 	fmt.Printf("Unfollowed %s, as %s.\n", cmd.arguements[0], user.Name)
+	return nil
+}
+
+func scrapeFeedFor(s *state, feed database.Feed) (err error) {
+	fmt.Printf("Aggregating from %s@%s\n", feed.Name, feed.Url)
+	fetchedFeed, err := internal.FetchFeed(context.Background(), feed.Url)
+	if err != nil {
+		return fmt.Errorf("Error fetching form address %s. Error: %s", feed.Url, err)
+	}
+	_, err = s.dbConnection.MarkFeedtoFetch(context.Background(),
+		database.MarkFeedtoFetchParams{
+			UpdatedAt: time.Now(),
+			ID:        feed.ID,
+		})
+	if err != nil {
+		return fmt.Errorf("Error updating fetch date for %s. Error: %s", feed.Url, err)
+	}
+	for _, fetchedSubFeed := range fetchedFeed.Channel.Item {
+		publishTime, err := time.Parse(time.RFC1123, fetchedSubFeed.PubDate)
+		if err != nil {
+			publishTime = time.Now()
+		}
+		_, err = s.dbConnection.CreatePost(context.Background(), database.CreatePostParams{
+			ID:          uuid.New(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Title:       fetchedSubFeed.Title,
+			Url:         fetchedSubFeed.Link,
+			Description: sql.NullString{String: fetchedSubFeed.Description, Valid: len(fetchedSubFeed.Description) > 0},
+			PublishedAt: publishTime,
+			FeedID:      feed.ID,
+		})
+	}
+	return nil
+
+}
+
+func aggHandler(s *state, cmd command, user database.User) (err error) {
+	feeds, err := s.dbConnection.GetMyFeeds(context.Background(), user.ID)
+	for _, feed := range feeds {
+		err = scrapeFeedFor(s, feed)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	return nil
+}
+
+func browseHandler(s *state, cmd command, user database.User) (err error) {
+	var limit int
+	var limitAddressed = false
+	if len(cmd.arguements) == 1 {
+		limit, err = strconv.Atoi(cmd.arguements[0])
+		if err != nil {
+			limit = 5
+		}
+		limitAddressed = true
+	}
+
+	posts, err := s.dbConnection.GetPostsForUser(context.Background(), user.ID)
+	fmt.Println("Recent posts from RSS feed...")
+	if limitAddressed {
+		limit = min(len(posts), limit)
+	} else {
+		limit = len(posts)
+	}
+	for i := 0; i < limit; i++ {
+		fmt.Println(posts[i].PublishedAt, posts[i].Title)
+
+		fmt.Println("\t", posts[i].Url)
+		fmt.Println("\t", posts[i].Description.String)
+		fmt.Println("=============================================================")
+		fmt.Println()
+	}
 	return nil
 }
 

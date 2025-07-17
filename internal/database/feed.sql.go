@@ -23,7 +23,7 @@ VALUES (
     $5,
     $6
 )
-RETURNING id, created_at, updated_at, name, url, user_id
+RETURNING id, created_at, updated_at, name, url, user_id, last_fetched_at
 `
 
 type AddFeedParams struct {
@@ -52,6 +52,7 @@ func (q *Queries) AddFeed(ctx context.Context, arg AddFeedParams) (Feed, error) 
 		&i.Name,
 		&i.Url,
 		&i.UserID,
+		&i.LastFetchedAt,
 	)
 	return i, err
 }
@@ -111,7 +112,7 @@ func (q *Queries) GetFeed(ctx context.Context, url string) (GetFeedRow, error) {
 }
 
 const getMyFeeds = `-- name: GetMyFeeds :many
-SELECT id, created_at, updated_at, name, url, user_id FROM feeds
+SELECT id, created_at, updated_at, name, url, user_id, last_fetched_at FROM feeds
 WHERE user_id = $1
 ORDER BY created_at
 `
@@ -132,6 +133,7 @@ func (q *Queries) GetMyFeeds(ctx context.Context, userID uuid.UUID) ([]Feed, err
 			&i.Name,
 			&i.Url,
 			&i.UserID,
+			&i.LastFetchedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -144,4 +146,52 @@ func (q *Queries) GetMyFeeds(ctx context.Context, userID uuid.UUID) ([]Feed, err
 		return nil, err
 	}
 	return items, nil
+}
+
+const getNextFeedtoFetch = `-- name: GetNextFeedtoFetch :one
+SELECT id, created_at, updated_at, name, url, user_id, last_fetched_at FROM feeds
+ORDER BY updated_at ASC NULLS FIRST
+LIMIT 1
+`
+
+func (q *Queries) GetNextFeedtoFetch(ctx context.Context) (Feed, error) {
+	row := q.db.QueryRowContext(ctx, getNextFeedtoFetch)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.Url,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
+}
+
+const markFeedtoFetch = `-- name: MarkFeedtoFetch :one
+UPDATE feeds
+SET updated_at = $1
+WHERE feeds.id = $2
+RETURNING id, created_at, updated_at, name, url, user_id, last_fetched_at
+`
+
+type MarkFeedtoFetchParams struct {
+	UpdatedAt time.Time
+	ID        uuid.UUID
+}
+
+func (q *Queries) MarkFeedtoFetch(ctx context.Context, arg MarkFeedtoFetchParams) (Feed, error) {
+	row := q.db.QueryRowContext(ctx, markFeedtoFetch, arg.UpdatedAt, arg.ID)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+		&i.Url,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
 }

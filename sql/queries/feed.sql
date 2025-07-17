@@ -24,3 +24,14 @@ ORDER BY feeds.created_at;
 -- name: GetFeed :one
 SELECT feeds.name, feeds.url, feeds.id FROM feeds
 WHERE feeds.url = $1;
+
+-- name: MarkFeedtoFetch :one
+UPDATE feeds
+SET updated_at = $1
+WHERE feeds.id = $2
+RETURNING *;
+
+-- name: GetNextFeedtoFetch :one
+SELECT * FROM feeds
+ORDER BY updated_at ASC NULLS FIRST
+LIMIT 1;
